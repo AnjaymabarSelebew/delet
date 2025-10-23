@@ -61,105 +61,50 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Validate & normalize inputs
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          TOTAL_COMMITS_RAW="${{ github.event.inputs.total_commits }}"
-          TOTAL_DAYS_RAW="${{ github.event.inputs.total_days }}"
-          TOTAL_PRS_RAW="${{ github.event.inputs.total_prs }}"
-          TOTAL_ISSUES_RAW="${{ github.event.inputs.total_issues }}"
-          REPO_COUNT_RAW="${{ github.event.inputs.repo_count }}"
-
-          isnum() { [[ "${1:-}" =~ ^[0-9]+$ ]]; }
-
-          if isnum "$TOTAL_COMMITS_RAW"; then TOTAL_COMMITS="$TOTAL_COMMITS_RAW"; else TOTAL_COMMITS=1650; echo "⚠️ total_commits invalid → fallback 1650"; fi
-          if isnum "$TOTAL_DAYS_RAW"; then TOTAL_DAYS="$TOTAL_DAYS_RAW"; else TOTAL_DAYS=365; echo "⚠️ total_days invalid → fallback 365"; fi
-          if isnum "$TOTAL_PRS_RAW"; then TOTAL_PRS="$TOTAL_PRS_RAW"; else TOTAL_PRS=120; echo "⚠️ total_prs invalid → fallback 120"; fi
-          if isnum "$TOTAL_ISSUES_RAW"; then TOTAL_ISSUES="$TOTAL_ISSUES_RAW"; else TOTAL_ISSUES=130; echo "⚠️ total_issues invalid → fallback 130"; fi
-
-          if [ -z "${REPO_COUNT_RAW:-}" ]; then
-            REPO_COUNT=0
-          elif isnum "$REPO_COUNT_RAW"; then
-            REPO_COUNT="$REPO_COUNT_RAW"
-          else
-            REPO_COUNT=0; echo "⚠️ repo_count invalid → fallback 0"
-          fi
-
-          {
-            echo "TOTAL_COMMITS=$TOTAL_COMMITS"
-            echo "TOTAL_DAYS=$TOTAL_DAYS"
-            echo "TOTAL_PRS=$TOTAL_PRS"
-            echo "TOTAL_ISSUES=$TOTAL_ISSUES"
-            echo "REPO_COUNT=$REPO_COUNT"
-          } >> "$GITHUB_ENV"
-
       - name: Delay Awal
-        shell: bash
         run: |
           DELAY=$((5 + RANDOM % 10))
           echo "🕒 Delay awal $DELAY detik untuk akun ${{ matrix.account }}..."
           sleep $DELAY
 
-      - name: Setup Git Identity
-        shell: bash
+      - name: Setup Git
         run: |
           git config --global user.name "${{ matrix.account }}"
           git config --global user.email "${{ matrix.email }}"
           echo "✅ Git identity diset untuk ${{ matrix.account }}"
 
-      - name: Clone Target Repo & Detect Default Branch (sanitized)
+      - name: Clone Target Repo
         env:
           GH_TOKEN: ${{ secrets[matrix.token_secret] }}
-          TARGET_REPO_IN: ${{ github.event.inputs.target_repo }}
-        shell: bash
+          TARGET_REPO: ${{ github.event.inputs.target_repo }}
         run: |
-          set -euo pipefail
-
-          # Sanitize target_repo: trim spasi/CR, hapus trailing slash
-          TARGET_REPO_CLEAN="$(printf '%s' "${TARGET_REPO_IN:-}" | tr -d '\r' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//; s#/+$##')"
-
-          # Tolak kalau ada spasi di tengah atau format bukan owner/repo
-          if printf '%s' "$TARGET_REPO_CLEAN" | grep -q '[[:space:]]'; then
-            echo "❌ target_repo mengandung spasi: '$TARGET_REPO_CLEAN'"
-            exit 1
-          fi
-          if ! printf '%s' "$TARGET_REPO_CLEAN" | grep -Eq '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$'; then
-            echo "❌ Format target_repo harus 'owner/repo'. Diterima: '$TARGET_REPO_CLEAN'"
-            exit 1
-          fi
-          echo "TARGET_REPO_CLEAN=$TARGET_REPO_CLEAN" >> "$GITHUB_ENV"
-
-          echo "🔄 Cloning $TARGET_REPO_CLEAN ..."
-          git clone --filter=blob:none --depth=1 "https://x-access-token:${GH_TOKEN}@github.com/$TARGET_REPO_CLEAN" repo
+          set -e
+          echo "🔄 Cloning $TARGET_REPO..."
+          git clone --filter=blob:none --depth=1 "https://x-access-token:${GH_TOKEN}@github.com/$TARGET_REPO" repo
           cd repo
-          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${TARGET_REPO_CLEAN}.git"
-
-          # Deteksi default branch
-          DEFAULT_BRANCH=$(git remote show origin | sed -n 's/.*HEAD branch: //p')
-          DEFAULT_BRANCH=${DEFAULT_BRANCH:-main}
-          echo "DEFAULT_BRANCH=$DEFAULT_BRANCH" >> "$GITHUB_ENV"
-          echo "✅ Default branch: $DEFAULT_BRANCH"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${TARGET_REPO}.git"
+          echo "✅ Repo OK"
 
       # ===================== COMMITS (SINGLE STEP, EXACT COUNT, ANTI TABRAKAN) =====================
       - name: Commit Generator (single, anti tabrakan, exact count)
         env:
+          TOTAL_COMMITS: ${{ github.event.inputs.total_commits }}
+          TOTAL_DAYS: ${{ github.event.inputs.total_days }}
           GH_TOKEN: ${{ secrets[matrix.token_secret] }}
-        shell: bash
+          TARGET_REPO: ${{ github.event.inputs.target_repo }}
         run: |
-          set -euo pipefail
+          set -e
           cd repo
           mkdir -p logs
 
-          BASE=$(( ${TOTAL_COMMITS} / ${TOTAL_DAYS} ))
-          REM=$(( ${TOTAL_COMMITS} % ${TOTAL_DAYS} ))
-          echo "📊 Target commit: ${TOTAL_COMMITS} dalam ${TOTAL_DAYS} hari (base=$BASE, remainder=$REM)"
+          BASE=$((TOTAL_COMMITS / TOTAL_DAYS))
+          REM=$((TOTAL_COMMITS % TOTAL_DAYS))
+          echo "📊 Target commit: $TOTAL_COMMITS dalam $TOTAL_DAYS hari (base=$BASE, remainder=$REM)"
 
-          START_DATE=$(date -d "${TOTAL_DAYS} days ago" +%Y-%m-%d)
+          START_DATE=$(date -d "$TOTAL_DAYS days ago" +%Y-%m-%d)
 
           total_made=0
-          for ((day=0; day<${TOTAL_DAYS}; day++)); do
+          for ((day=0; day<TOTAL_DAYS; day++)); do
             DATE_STR=$(date -d "$START_DATE +$day days" +%Y-%m-%d)
 
             COMMITS_TODAY=$BASE
@@ -180,8 +125,8 @@ jobs:
           done
           echo "🧮 Total commit dibuat: $total_made"
 
-          # Delay acak (balanced) untuk anti tabrakan push
-          DELAY_PUSH=$((8 + RANDOM % 18))
+          # Delay acak untuk menghindari dorongan bersamaan
+          DELAY_PUSH=$((10 + RANDOM % 30))
           echo "⏳ Delay $DELAY_PUSH detik sebelum push..."
           sleep $DELAY_PUSH
 
@@ -190,9 +135,9 @@ jobs:
           MAX_ATTEMPTS=5
           until [ $ATTEMPT -gt $MAX_ATTEMPTS ]; do
             echo "📡 Attempt $ATTEMPT: sync & push"
-            git fetch origin "${DEFAULT_BRANCH}" || true
-            git pull --rebase --autostash origin "${DEFAULT_BRANCH}" || true
-            if git push "https://x-access-token:${GH_TOKEN}@github.com/${TARGET_REPO_CLEAN}" HEAD:"${DEFAULT_BRANCH}"; then
+            git fetch origin main || true
+            git pull --rebase --autostash origin main || true
+            if git push "https://x-access-token:${GH_TOKEN}@github.com/$TARGET_REPO" HEAD:main; then
               echo "✅ Push sukses (attempt $ATTEMPT)"
               break
             fi
@@ -205,98 +150,75 @@ jobs:
             echo "🚨 Gagal push setelah $MAX_ATTEMPTS percobaan"
           fi
 
-      # ===================== PRs (PARALEL 4 + AUTH + JITTER) =====================
-      - name: Create PRs (parallel 4)
+      # ===================== PRs =====================
+      - name: Create PRs (parallel 6)
         env:
           GH_TOKEN: ${{ secrets[matrix.token_secret] }}
-        shell: bash
+          TARGET_REPO: ${{ github.event.inputs.target_repo }}
+          TOTAL_PRS: ${{ github.event.inputs.total_prs }}
         run: |
-          set -euo pipefail
+          set -e
           cd repo
           # pastikan gh auth
           gh auth status >/dev/null 2>&1 || (echo "$GH_TOKEN" | gh auth login --with-token >/dev/null)
-
-          PAR=4
-          seq 1 "${TOTAL_PRS}" | xargs -I{} -P $PAR bash -c '
-            set -euo pipefail
+          seq 1 "$TOTAL_PRS" | xargs -I{} -P 6 bash -c '
+            set -e
             i="{}"
             branch="auto-${{ matrix.account }}-pr-$i-$(date +%s)-$RANDOM"
             echo "Pull request #$i by ${{ matrix.account }}" > "pr_${{ matrix.account }}_$i.txt"
             git checkout -B "$branch"
             git add "pr_${{ matrix.account }}_$i.txt"
             git commit --author="${{ matrix.account }} <${{ matrix.email }}>" -m "PR otomatis #$i oleh ${{ matrix.account }}" >/dev/null 2>&1 || true
-            git push -f "https://x-access-token:${GH_TOKEN}@github.com/${TARGET_REPO_CLEAN}" HEAD:"$branch" >/dev/null 2>&1
-            sleep $((RANDOM % 2))
-            gh pr create \
-              --title "PR #$i dari ${{ matrix.account }}" \
-              --body "PR otomatis oleh ${{ matrix.account }}" \
-              --base "${DEFAULT_BRANCH}" \
-              --head "$branch" \
-              --repo "${TARGET_REPO_CLEAN}" >/dev/null 2>&1 || true
+            git push -f "https://x-access-token:${GH_TOKEN}@github.com/$TARGET_REPO" HEAD:"$branch" >/dev/null 2>&1
+            gh pr create --title "PR #$i dari ${{ matrix.account }}" --body "PR otomatis oleh ${{ matrix.account }}" --base main --head "$branch" --repo "$TARGET_REPO" >/dev/null 2>&1 || true
           '
 
       # ===================== ISSUES (EXACT COUNT, RETRY + VALIDASI) =====================
       - name: Create Issues (exact count, with retry+validation)
         env:
           GH_TOKEN: ${{ secrets[matrix.token_secret] }}
-        shell: bash
+          TARGET_REPO: ${{ github.event.inputs.target_repo }}
+          TOTAL_ISSUES: ${{ github.event.inputs.total_issues }}
         run: |
-          set -euo pipefail
+          set -e
           created=0
           i=1
-          echo "📋 Target membuat ${TOTAL_ISSUES} issues di ${TARGET_REPO_CLEAN}"
-
-          while [ $created -lt ${TOTAL_ISSUES} ]; do
+          echo "📋 Target membuat $TOTAL_ISSUES issues di $TARGET_REPO"
+          while [ $created -lt $TOTAL_ISSUES ]; do
             title="Issue #$i dari ${{ matrix.account }}"
             body="Auto-generated issue $i oleh akun ${{ matrix.account }}"
             success=0
             for attempt in 1 2 3 4; do
               echo "📝 Create $title (attempt $attempt)"
-              http_code=$(curl -s -o /tmp/resp.json -w "%{http_code}" -X POST \
+              resp=$(curl -s -X POST \
                 -H "Authorization: token $GH_TOKEN" \
                 -H "Accept: application/vnd.github+json" \
                 -d "{\"title\":\"${title}\",\"body\":\"${body}\"}" \
-                "https://api.github.com/repos/${TARGET_REPO_CLEAN}/issues" || true)
-
-              if [ "$http_code" = "201" ]; then
-                num=$(sed -n 's/.*"number":[ ]*\([0-9]\+\).*/\1/p' /tmp/resp.json | head -n1 || true)
-                echo "✅ Issue dibuat: #${num:-?}"
-                success=1; break
-              elif [ "$http_code" = "422" ] || [ "$http_code" = "404" ]; then
-                echo "❌ Fatal ($http_code). Cek permission/repo. Stop."
-                exit 1
-              elif [ "$http_code" = "403" ]; then
-                echo "⏳ Rate limited (403), tunggu sebentar..."
-                sleep $((4 * attempt + RANDOM % 3))
+                "https://api.github.com/repos/$TARGET_REPO/issues")
+              if echo "$resp" | grep -q "\"number\":"; then
+                num=$(echo "$resp" | sed -n 's/.*"number":[ ]*\([0-9]\+\).*/\1/p' | head -n1)
+                echo "✅ Issue dibuat: #$num"
+                success=1
+                break
               else
-                echo "⚠️ HTTP $http_code, retry..."
+                echo "⚠️ Gagal create (resp snippet): $(echo "$resp" | head -c 200)"
                 sleep $((2 * attempt + RANDOM % 3))
               fi
             done
-
             if [ $success -eq 1 ]; then
               created=$((created + 1))
             fi
             i=$((i + 1))
             sleep $((1 + RANDOM % 2))
           done
-
           echo "✅ Selesai: total issues dibuat = $created"
 
-      # ===================== REPOS TAMBAHAN (COUNT TEPAT, PARALLEL-SAFE) =====================
-      - name: Create Additional Repos (3-word unique, parallel-safe)
+      # ===================== REPOS TAMBAHAN =====================
+      - name: Create Additional Repos (3-word unique, parallel-safe) - FIXED
         env:
           PAT_TOKEN: ${{ secrets[matrix.token_secret] }}
-        shell: bash
         run: |
-          set -euo pipefail
-          COUNT=${REPO_COUNT:-0}
-          echo "=== Membuat $COUNT repo unik untuk ${{ matrix.account }} ==="
-          if [ "$COUNT" -le 0 ]; then
-            echo "ℹ️ COUNT=0, skip step repos tambahan."
-            exit 0
-          fi
-
+          set +e
           WORDS=("quantum" "nova" "lumen" "matrix" "orbit" "vector" "sigma" "neon" "fusion" "zenith" "alpha" "omega" "pulse" "nexus" "terra" "vortex" "plasma" "aether" "chrono" "helios" "astra" "echo" "draco" "titan" "ion")
           SUFFIX=("project" "service" "system" "app" "engine" "hub" "core" "cloud" "framework" "module" "node" "matrix" "unit")
           LANGS=("Python" "C++" "Go" "Swift" "Java" "JavaScript" "Ruby")
@@ -311,68 +233,75 @@ jobs:
             "puts 'Hello from Ruby!'"
           )
 
+          COUNT=${{ github.event.inputs.repo_count }}
+          COUNT=${COUNT:-0}
+          git config --global user.name "${{ matrix.account }}"
+          git config --global user.email "${{ matrix.email }}"
+
+          echo "=== Membuat $COUNT repo unik untuk ${{ matrix.account }} ==="
+          if [ "$COUNT" -le 0 ]; then
+            echo "ℹ️ COUNT=0, skip step repos tambahan."
+            exit 0
+          fi
+
           created_total=0
           while [ $created_total -lt $COUNT ]; do
-            : > /tmp/batch.ok
             pids=()
             for slot in 1 2 3; do
-              if [ $((created_total + ${#pids[@]})) -ge $COUNT ]; then break; fi
+              if [ $created_total -ge $COUNT ]; then break; fi
               (
-                set -euo pipefail
                 NAME="${WORDS[$RANDOM % ${#WORDS[@]}]}-${SUFFIX[$RANDOM % ${#SUFFIX[@]}]}-${WORDS[$RANDOM % ${#WORDS[@]}]}"
                 echo "→ Trying name $NAME"
-
-                # Skip jika sudah ada
-                http_check=$(curl -s -o /tmp/check.json -w "%{http_code}" -H "Authorization: token $PAT_TOKEN" "https://api.github.com/repos/${{ matrix.account }}/$NAME" || true)
-                if [ "$http_check" = "200" ]; then
-                  echo "⚠️ Repo $NAME sudah ada, skip"
+                exists=$(curl -s -H "Authorization: token $PAT_TOKEN" "https://api.github.com/repos/${{ matrix.account }}/$NAME" | grep -c "\"full_name\"" || true)
+                if [ "$exists" -ge 1 ]; then
+                  echo "⚠️ Repo $NAME sudah ada, skipping"
                   exit 0
                 fi
-
-                # Create dengan retry
                 created=0
                 for attempt in 1 2 3; do
-                  http_code=$(curl -s -o /tmp/create.json -w "%{http_code}" -H "Authorization: token $PAT_TOKEN" -H "Accept: application/vnd.github+json" -d "{\"name\":\"$NAME\",\"auto_init\":true}" https://api.github.com/user/repos || true)
-                  if [ "$http_code" = "201" ]; then
-                    echo "✅ Created $NAME"
+                  echo "⏳ Creating $NAME (attempt $attempt)..."
+                  resp=$(curl -s -H "Authorization: token $PAT_TOKEN" -H "Accept: application/vnd.github+json" -d "{\"name\":\"$NAME\",\"auto_init\":true}" https://api.github.com/user/repos)
+                  if echo "$resp" | grep -q "\"full_name\""; then
                     created=1
+                    echo "✅ Created $NAME"
                     break
+                  else
+                    echo "⚠️ Create failed for $NAME, resp snippet: $(echo "$resp" | head -c 200)"
+                    sleep 2
                   fi
-                  echo "⚠️ Create $NAME gagal (HTTP $http_code), retry..."
-                  sleep 2
                 done
-                [ $created -eq 1 ] || exit 0
-
-                # Tunggu remote siap
-                for w in 1 2 3 4; do
-                  if git ls-remote "https://x-access-token:${PAT_TOKEN}@github.com/${{ matrix.account }}/$NAME.git" &>/dev/null; then
-                    break
+                if [ $created -eq 1 ]; then
+                  for w in 1 2 3 4; do
+                    if git ls-remote "https://x-access-token:${PAT_TOKEN}@github.com/${{ matrix.account }}/$NAME.git" &>/dev/null; then
+                      break
+                    fi
+                    sleep 2
+                  done
+                  if git clone --quiet --depth=1 "https://x-access-token:${PAT_TOKEN}@github.com/${{ matrix.account }}/$NAME.git"; then
+                    cd "$NAME"
+                    LANG_INDEX=$((RANDOM % ${#LANGS[@]}))
+                    echo "${CONTENTS[$LANG_INDEX]}" > "main.${EXT[$LANG_INDEX]}"
+                    git add .
+                    git commit --author="${{ matrix.account }} <${{ matrix.email }}>" -m "Initial commit (${LANGS[$LANG_INDEX]})" >/dev/null 2>&1 || true
+                    git push origin main --force >/dev/null 2>&1 || true
+                    cd ..
+                    rm -rf "$NAME"
+                    exit 0
+                  else
+                    echo "❌ Clone failed for $NAME"
+                    exit 0
                   fi
-                  sleep 2
-                done
-
-                # Seed repo satu file
-                if git clone --quiet --depth=1 "https://x-access-token:${PAT_TOKEN}@github.com/${{ matrix.account }}/$NAME.git"; then
-                  cd "$NAME"
-                  LANG_INDEX=$((RANDOM % ${#LANGS[@]}))
-                  echo "${CONTENTS[$LANG_INDEX]}" > "main.${EXT[$LANG_INDEX]}"
-                  git add .
-                  git commit --author="${{ matrix.account }} <${{ matrix.email }}>" -m "Initial commit (${LANGS[$LANG_INDEX]})" >/dev/null 2>&1 || true
-                  # Push ke default branch kalau sama, kalau tidak coba HEAD
-                  git push origin "${DEFAULT_BRANCH}" >/dev/null 2>&1 || git push origin HEAD >/dev/null 2>&1 || true
-                  cd ..
-                  rm -rf "$NAME"
-                  echo OK >> /tmp/batch.ok
+                else
+                  exit 0
                 fi
               ) &
               pids+=($!)
               sleep 1
             done
-
-            for pid in "${pids[@]}"; do wait $pid || true; done
-            batch_created=$(wc -l < /tmp/batch.ok || echo 0)
-            created_total=$((created_total + batch_created))
-            echo "📦 Akumulasi repo sukses: $created_total / $COUNT"
+            for pid in "${pids[@]}"; do
+              wait $pid || true
+              created_total=$((created_total+1))
+              if [ $created_total -ge $COUNT ]; then break 2; fi
+            done
           done
-
           echo "✅ Semua repo tambahan selesai!"
