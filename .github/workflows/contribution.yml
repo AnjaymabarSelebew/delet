@@ -124,16 +124,15 @@ jobs:
       - name: Create PRs (REST API, anti burst)
         env:
           GH_TOKEN: ${{ secrets[matrix.token_secret] }}
-          TARGET_REPO_RAW: ${{ github.event.inputs.target_repo }}
+          TARGET_REPO: ${{ github.event.inputs.target_repo }}
           TOTAL_PRS: ${{ github.event.inputs.total_prs }}
         shell: bash
         run: |
           set -euo pipefail
           cd repo
 
-          # --- Sanitize target repo TANPA sed & lakukan SEKALI ---
-          # remove CR, trim leading/trailing whitespace, drop trailing slashes
-          TRIMMED="$(printf '%s' "${TARGET_REPO_RAW:-}" | tr -d '\r' | xargs)"
+          # --- Sanitize target repo tanpa sed ---
+          TRIMMED="$(printf '%s' "${TARGET_REPO:-}" | tr -d '\r' | xargs)"
           TARGET_REPO_CLEAN="${TRIMMED%/}"
           if [[ "$TARGET_REPO_CLEAN" =~ [[:space:]] ]]; then
             echo "❌ target_repo mengandung spasi: '$TARGET_REPO_CLEAN'"; exit 1
@@ -143,16 +142,12 @@ jobs:
           fi
           export TARGET_REPO_CLEAN
 
-          # --- Auth & refresh base ---
-          gh auth status >/dev/null 2>&1 || (echo "$GH_TOKEN" | gh auth login --with-token >/dev/null)
+          # Default branch
           DEFAULT_BRANCH="$(git remote show origin | sed -n 's/.*HEAD branch: //p')"
           DEFAULT_BRANCH="${DEFAULT_BRANCH:-main}"
           export DEFAULT_BRANCH
-          git fetch origin "$DEFAULT_BRANCH" --prune
-          git checkout "$DEFAULT_BRANCH"
-          git reset --hard "origin/$DEFAULT_BRANCH"
 
-          # 1) SEKUENSIAL: buat & push branch (hindari index.lock)
+          # 1) SEKUENSIAL: buat & push branch
           : > /tmp/pr_branches.txt
           for i in $(seq 1 "${TOTAL_PRS}"); do
             branch="auto-${{ matrix.account }}-pr-$i-$(date +%s)-$RANDOM"
@@ -165,7 +160,7 @@ jobs:
             sleep $((RANDOM % 2))
           done
 
-          # 2) PARALEL KECIL: create PR via REST + retry/backoff (tanpa sed di dalam)
+          # 2) PARALEL KECIL: create PR via REST + retry/backoff
           PAR=2
           cat /tmp/pr_branches.txt | xargs -P "$PAR" -n 2 bash -c '
             set -euo pipefail
@@ -173,27 +168,41 @@ jobs:
 
             title="PR #$i dari ${{ matrix.account }}"
             body="PR otomatis oleh ${{ matrix.account }}"
-            data="$(jq -n --arg title "$title" --arg head "$branch" --arg base "$DEFAULT_BRANCH" --arg body "$body" \
-                     "{title:$title, head:$head, base:$base, body:$body}")"
+
+            # ⬇⬇⬇ PERHATIKAN: program jq pakai SINGLE QUOTES, bukan double
+            data="$(jq -n \
+              --arg title "$title" \
+              --arg head "$branch" \
+              --arg base "$DEFAULT_BRANCH" \
+              --arg body "$body" \
+              '"'"'{title:$title, head:$head, base:$base, body:$body}'"'"')"
 
             for attempt in 1 2 3 4 5; do
               sleep $(( (RANDOM % 2) + attempt ))
               http=$(curl -sS -o /tmp/resp_$i.json -w "%{http_code}" \
-                 -H "Authorization: token $GH_TOKEN" \
+                 -H "Authorization: token '"$GH_TOKEN"'" \
                  -H "Accept: application/vnd.github+json" \
                  -X POST -d "$data" \
                  "https://api.github.com/repos/${TARGET_REPO_CLEAN}/pulls" || true)
+
               if [ "$http" = "201" ]; then
                 echo "✅ PR #$i OK (branch $branch)"; break
               fi
+
               msg="$(jq -r ".message // empty" /tmp/resp_$i.json 2>/dev/null || true)"
               if [ "$http" = "403" ] || echo "$msg" | grep -qiE "abuse|secondary"; then
-                echo "⏳ Throttled ($http): $msg — retry $attempt"; sleep $((2*attempt + RANDOM%3)); continue
+                echo "⏳ Throttled ($http): $msg — retry $attempt"
+                sleep $(( 2*attempt + RANDOM%3 ))
+                continue
               fi
+
               if [ "$http" = "422" ] || [ "$http" = "404" ] || [ "$http" = "401" ]; then
-                echo "❌ Fatal ($http) PR #$i: $(head -c 200 /tmp/resp_$i.json)"; break
+                echo "❌ Fatal ($http) PR #$i: $(head -c 200 /tmp/resp_$i.json)"
+                break
               fi
-              echo "⚠️ HTTP $http PR #$i — retry $attempt"; sleep $((2*attempt + RANDOM%3))
+
+              echo "⚠️ HTTP $http PR #$i — retry $attempt"
+              sleep $(( 2*attempt + RANDOM%3 ))
             done
           ' _
 
