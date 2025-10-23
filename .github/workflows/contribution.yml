@@ -6,7 +6,7 @@ on:
       total_commits:
         description: "Jumlah total commit per akun"
         required: true
-        default: "1650"
+        default: "365"
       total_days:
         description: "Jumlah hari pembagian commit"
         required: true
@@ -14,7 +14,7 @@ on:
       total_prs:
         description: "Jumlah Pull Request per akun"
         required: true
-        default: "120"
+        default: "12"
       total_issues:
         description: "Jumlah Issue per akun"
         required: true
@@ -22,12 +22,11 @@ on:
       repo_count:
         description: "Jumlah repository tambahan per akun"
         required: true
-        default: "25"
+        default: "1"
       target_repo:
         description: "Repository utama tempat aktivitas"
         required: true
-        default: "anjaymabarselebew/delet
-        "
+        default: "anjaymabarselebew/delet"
 
 # Cegah dua run workflow yang sama nabrak target repo yang sama
 concurrency:
@@ -152,18 +151,71 @@ jobs:
             gh pr create --title "PR #$i dari ${{ matrix.account }}" --body "PR otomatis oleh ${{ matrix.account }}" --base main --head "$branch" --repo "$TARGET_REPO" || true
           '
 
-      - name: Create Issues (parallel 6)
+      - name: Create Issues (exact count, retry+validation, sanitized repo)
         env:
           GH_TOKEN: ${{ secrets[matrix.token_secret] }}
-          TARGET_REPO: ${{ github.event.inputs.target_repo }}
+          TARGET_REPO_IN: ${{ github.event.inputs.target_repo }}
           TOTAL_ISSUES: ${{ github.event.inputs.total_issues }}
+        shell: bash
         run: |
-          seq 1 $TOTAL_ISSUES | xargs -I{} -P 6 bash -c '
-            i="{}"
-            gh issue create \
-              --title "Issue #$i dari ${{ matrix.account }}" \
-              --body "Auto-generated issue $i oleh akun ${{ matrix.account }}" \
-              --repo "$TARGET_REPO" || true
+          set -euo pipefail
+
+          # Sanitize target_repo: trim spasi/CR, hapus trailing slash
+          TARGET_REPO="$(printf '%s' "${TARGET_REPO_IN:-}" | tr -d '\r' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//; s#/+$##')"
+          if printf '%s' "$TARGET_REPO" | grep -q '[[:space:]]'; then
+            echo "❌ target_repo mengandung spasi: '$TARGET_REPO'"
+            exit 1
+          fi
+          if ! printf '%s' "$TARGET_REPO" | grep -Eq '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$'; then
+            echo "❌ Format target_repo harus 'owner/repo'. Diterima: '$TARGET_REPO'"
+            exit 1
+          fi
+
+          created=0
+          i=1
+          echo "📋 Target membuat ${TOTAL_ISSUES} issues di ${TARGET_REPO}"
+
+          while [ "$created" -lt "$TOTAL_ISSUES" ]; do
+            title="Issue #$i dari ${{ matrix.account }}"
+            body="Auto-generated issue $i oleh akun ${{ matrix.account }}"
+            success=0
+
+            for attempt in 1 2 3 4; do
+              echo "📝 Create $title (attempt $attempt)"
+              http_code=$(curl -s -o /tmp/resp.json -w "%{http_code}" -X POST \
+                -H "Authorization: token $GH_TOKEN" \
+                -H "Accept: application/vnd.github+json" \
+                -d "{\"title\":\"${title}\",\"body\":\"${body}\"}" \
+                "https://api.github.com/repos/${TARGET_REPO}/issues" || true)
+
+              if [ "$http_code" = "201" ]; then
+                num=$(sed -n 's/.*"number":[ ]*\([0-9]\+\).*/\1/p' /tmp/resp.json | head -n1 || true)
+                echo "✅ Issue dibuat: #${num:-?}"
+                success=1
+                break
+              elif [ "$http_code" = "422" ] || [ "$http_code" = "404" ] || [ "$http_code" = "401" ]; then
+                echo "❌ Fatal ($http_code). Cek repo/permission/token. Stop."
+                echo "Resp snippet: $(head -c 300 /tmp/resp.json)"
+                exit 1
+              elif [ "$http_code" = "403" ]; then
+                echo "⏳ Rate limited (403), tunggu dulu..."
+                sleep $((4 * attempt + RANDOM % 3))
+              else
+                echo "⚠️ HTTP $http_code, retry..."
+                sleep $((2 * attempt + RANDOM % 3))
+              fi
+            done
+
+            if [ $success -eq 1 ]; then
+              created=$((created + 1))
+            fi
+            i=$((i + 1))
+            # jitter kecil biar nggak burst
+            sleep $((RANDOM % 2))
+          done
+
+          echo "✅ Selesai: total issues dibuat = $created"
+
           '
 
       - name: Create Additional Repos (3-word unique, parallel-safe) - FIXED
