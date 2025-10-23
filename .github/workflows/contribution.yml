@@ -6,7 +6,7 @@ on:
       total_commits:
         description: "Jumlah total commit per akun"
         required: true
-        default: "1650"
+        default: "2650"
       total_days:
         description: "Jumlah hari pembagian commit"
         required: true
@@ -14,15 +14,15 @@ on:
       total_prs:
         description: "Jumlah Pull Request per akun"
         required: true
-        default: "1"
+        default: "120"
       total_issues:
         description: "Jumlah Issue per akun"
         required: true
-        default: "1"
+        default: "105"
       repo_count:
         description: "Jumlah repository tambahan per akun"
         required: true
-        default: "1"
+        default: "25"
       target_repo:
         description: "Repository utama tempat aktivitas"
         required: true
@@ -41,21 +41,9 @@ jobs:
       max-parallel: 5
       matrix:
         include:
-          - account: adandriansa
-            email: 201065146+adandriansa@users.noreply.github.com
+          - account: kujilatpani
+            email: 202584286+kujilatpani@users.noreply.github.com
             token_secret: PAT1
-          - account: vivi-novita
-            email: 202683697+vivi-novita@users.noreply.github.com
-            token_secret: PAT2
-          - account: lastunikubar
-            email: 201707528+lastunikubar@users.noreply.github.com
-            token_secret: PAT3    
-          - account: BELANMAJUN
-            email: 202381555+BELANMAJUN@users.noreply.github.com
-            token_secret: PAT4    
-          - account: kalinaandini
-            email: 202582246+kalinaandini@users.noreply.github.com
-            token_secret: PAT5    
     steps:
       - name: Checkout
         uses: actions/checkout@v4
