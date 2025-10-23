@@ -18,7 +18,7 @@ on:
       total_issues:
         description: "Jumlah Issue per akun"
         required: true
-        default: "1"
+        default: "100"
       repo_count:
         description: "Jumlah repository tambahan per akun"
         required: true
