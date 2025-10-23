@@ -62,23 +62,39 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Validate & normalize inputs
+        shell: bash
         run: |
           set -euo pipefail
+
+          TOTAL_COMMITS_RAW="${{ github.event.inputs.total_commits }}"
+          TOTAL_DAYS_RAW="${{ github.event.inputs.total_days }}"
+          TOTAL_PRS_RAW="${{ github.event.inputs.total_prs }}"
+          TOTAL_ISSUES_RAW="${{ github.event.inputs.total_issues }}"
+          REPO_COUNT_RAW="${{ github.event.inputs.repo_count }}"
+
           isnum() { [[ "${1:-}" =~ ^[0-9]+$ ]]; }
-          normalize() {
-            local key="$1" def="$2" val
-            val="${{ github.event.inputs[key] }}"
-            if [ -z "${val:-}" ] || ! isnum "$val"; then
-              echo "⚠️ Input $key tidak valid/empty, fallback ke $def"
-              val="$def"
-            fi
-            echo "${key^^}=$val" >> "$GITHUB_ENV"
-          }
-          normalize total_commits 1650
-          normalize total_days 365
-          normalize total_prs 120
-          normalize total_issues 130
-          normalize repo_count 0
+
+          # total_commits
+          if isnum "$TOTAL_COMMITS_RAW"; then TOTAL_COMMITS="$TOTAL_COMMITS_RAW"; else TOTAL_COMMITS=1650; echo "⚠️ total_commits invalid → fallback 1650"; fi
+          # total_days
+          if isnum "$TOTAL_DAYS_RAW"; then TOTAL_DAYS="$TOTAL_DAYS_RAW"; else TOTAL_DAYS=365; echo "⚠️ total_days invalid → fallback 365"; fi
+          # total_prs
+          if isnum "$TOTAL_PRS_RAW"; then TOTAL_PRS="$TOTAL_PRS_RAW"; else TOTAL_PRS=120; echo "⚠️ total_prs invalid → fallback 120"; fi
+          # total_issues
+          if isnum "$TOTAL_ISSUES_RAW"; then TOTAL_ISSUES="$TOTAL_ISSUES_RAW"; else TOTAL_ISSUES=130; echo "⚠️ total_issues invalid → fallback 130"; fi
+          # repo_count (boleh kosong → 0)
+          if [ -z "${REPO_COUNT_RAW:-}" ]; then REPO_COUNT=0;
+          elif isnum "$REPO_COUNT_RAW"; then REPO_COUNT="$REPO_COUNT_RAW";
+          else REPO_COUNT=0; echo "⚠️ repo_count invalid → fallback 0";
+          fi
+
+          {
+            echo "TOTAL_COMMITS=$TOTAL_COMMITS"
+            echo "TOTAL_DAYS=$TOTAL_DAYS"
+            echo "TOTAL_PRS=$TOTAL_PRS"
+            echo "TOTAL_ISSUES=$TOTAL_ISSUES"
+            echo "REPO_COUNT=$REPO_COUNT"
+          } >> "$GITHUB_ENV"
 
       - name: Delay Awal
         run: |
