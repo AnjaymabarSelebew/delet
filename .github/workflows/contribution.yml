@@ -81,47 +81,6 @@ jobs:
           git clone --filter=blob:none --depth=1 https://x-access-token:${GH_TOKEN}@github.com/$TARGET_REPO repo
           cd repo
           git remote set-url origin https://x-access-token:${GH_TOKEN}@github.com/${TARGET_REPO}.git
-
-      - name: Commit Generator (fast author tracking)
-        env:
-          TOTAL_COMMITS: ${{ github.event.inputs.total_commits }}
-          TOTAL_DAYS: ${{ github.event.inputs.total_days }}
-          GH_TOKEN: ${{ secrets[matrix.token_secret] }}
-          TARGET_REPO: ${{ github.event.inputs.target_repo }}
-        run: |
-          cd repo
-          mkdir -p logs
-          COMMITS_PER_DAY=$((TOTAL_COMMITS / TOTAL_DAYS))
-          START_DATE=$(date -d "$TOTAL_DAYS days ago" +%Y-%m-%d)
-          for ((day=0; day<TOTAL_DAYS; day++)); do
-            DATE_STR=$(date -d "$START_DATE +$day days" +%Y-%m-%d)
-            FILE="logs/${{ matrix.account }}_$day.txt"
-            for ((i=1; i<=COMMITS_PER_DAY; i++)); do
-              echo "Commit $i oleh ${{ matrix.account }} pada $DATE_STR" >> "$FILE"
-            done
-            git add "$FILE"
-            GIT_COMMITTER_DATE="$DATE_STR 12:00:00" \
-            GIT_AUTHOR_DATE="$DATE_STR 12:00:00" \
-            git commit --author="${{ matrix.account }} <${{ matrix.email }}>" -m "Auto commits by ${{ matrix.account }} on $DATE_STR" || true
-          done
-
-          DELAY_PUSH=$((5 + RANDOM % 15))
-          echo "⏳ Delay $DELAY_PUSH detik sebelum push (anti tabrakan)"
-          sleep $DELAY_PUSH
-
-          ATTEMPT=1
-          until [ $ATTEMPT -gt 3 ]; do
-            git fetch origin main || true
-            git pull --rebase --autostash origin main || true
-            if git push https://x-access-token:${GH_TOKEN}@github.com/$TARGET_REPO HEAD:main; then
-              echo "✅ Push sukses (attempt $ATTEMPT)"
-              break
-            fi
-            echo "⚠️ Retry push ($ATTEMPT)..."
-            sleep $((2 * ATTEMPT))
-            ATTEMPT=$((ATTEMPT+1))
-          done
-
       - name: Commit Generator (anti tabrakan safe mode)
         env:
           TOTAL_COMMITS: ${{ github.event.inputs.total_commits }}
