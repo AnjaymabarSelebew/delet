@@ -1,4 +1,4 @@
- name: Unified Multi-Account Workflow (v3.6 UltraSafe - FINAL)
+name: Unified Multi-Account Workflow (v3.6 UltraSafe - FINAL)
 
 on:
   workflow_dispatch:
