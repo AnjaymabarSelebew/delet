@@ -14,11 +14,11 @@ on:
       total_prs:
         description: "Jumlah Pull Request per akun"
         required: true
-        default: "12"
+        default: "105"
       total_issues:
         description: "Jumlah Issue per akun"
         required: true
-        default: "130"
+        default: "1"
       repo_count:
         description: "Jumlah repository tambahan per akun"
         required: true
