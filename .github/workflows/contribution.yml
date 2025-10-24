@@ -41,18 +41,9 @@ jobs:
       max-parallel: 5
       matrix:
         include:
-          - account: kalindapanih
-            email: 202654792+kalindapanih@users.noreply.github.com
-            token_secret: PAT1
-          - account: ikhabmalda
-            email: 202659223+ikhabmalda@users.noreply.github.com
-            token_secret: PAT2
-          - account: amandakala
-            email: 202618189+amandakala@users.noreply.github.com
-            token_secret: PAT3
-          - account: yadikumala
-            email: 202663424+yadikumala@users.noreply.github.com
-            token_secret: PAT4
+          - account: tatakabayan
+            email: 202666918+tatakabayan@users.noreply.github.com
+            token_secret: PAT5
     steps:
       - name: Checkout
         uses: actions/checkout@v4
