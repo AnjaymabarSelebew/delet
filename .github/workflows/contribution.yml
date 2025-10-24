@@ -1,4 +1,4 @@
-name: Unified Multi-Account Workflow (v3.6 UltraSafe - FINAL)
+name: Unified Multi-Account Workflow (v3.7 UltraSafe AntiLimit Edition)
 
 on:
   workflow_dispatch:
@@ -29,11 +29,25 @@ on:
         default: "anjaymabarselebew/delet"
 
 concurrency:
-  # Hindari dua run ke repo target yang sama berjalan bersamaan
   group: ${{ github.workflow }}:${{ github.event.inputs.target_repo }}
   cancel-in-progress: false
 
- steps:
+jobs:
+  unified:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        include:
+          - account: amandakala
+            email: 202618189+amandakala@users.noreply.github.com
+            token_secret: PAT1
+          - account: yadikumala
+            email: 202663424+yadikumala@users.noreply.github.com
+            token_secret: PAT2
+
+    steps:
       - name: Checkout
         uses: actions/checkout@v4
 
